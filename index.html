@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>FF14 战斗职业随机抽取器 v5【多人房间+聊天】</title>
+<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<style>
+*{box-sizing:border-box;font-family:"Microsoft Yahei",system-ui, sans-serif;}
+body{max-width:1080px;margin:24px auto;padding:0 20px;background:#0f141c;color:#e2e8f0;background-image:radial-gradient(#1f2937 1px, transparent 1px);background-size:24px 24px;}
+h1{text-align:center;color:#73b8ff;text-shadow:0 0 8px #2b6cb0;letter-spacing:2px;}
+.box{background:#1a2230;padding:18px;border-radius:12px;margin:14px 0;border:1px solid #2d3b4f;}
+.box h3{margin-top:0;color:#a0cfff;border-bottom:1px solid #2d3b4f;padding-bottom:8px;}
+button{background:#2563eb;color:#fff;border:none;padding:9px 14px;border-radius:6px;margin:4px;cursor:pointer;transition:0.2s;}
+button:hover{background:#3b82f6;box-shadow:0 0 6px #2563eb77;}
+button.secondary{background:#374151;}
+button.secondary:hover{background:#4b5563;}
+button.warn{background:#992b2b;}
+button.warn:hover{background:#b83838;}
+input,select{padding:7px 9px;background:#111827;color:#eee;border:1px solid #374151;border-radius:5px;margin:4px;}
+#result{white-space:pre-wrap;padding:14px;background:#111827;border-radius:8px;min-height:140px;margin-top:12px;border:1px solid #27303f;font-size:14px;line-height:1.6;}
+.flex-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+.job‑check-wrap{display:grid;grid-template-columns:repeat(auto‑fill, minmax(130px,1fr));gap:6px;margin‑top:8px;}
+.job‑item{padding:4px 6px;font‑size:13px;}
+.star{color:#facc15;}
+.small-note{font‑size:12px;color:#94a3b8;margin‑top:4px;}
+.room-member-item{padding:4px 8px;background:#27303f;border-radius:4px;margin:3px;display:inline-block;}
+#chatBox{height:180px;overflow-y:auto;background:#111827;padding:8px;border-radius:6px;border:1px solid #27303f;margin:8px 0;}
+.chat-item{margin:3px 0;font-size:13px;}
+.chat-name{color:#73b8ff;}
+</style>
+</head>
+<body>
+<h1>FF14 战斗职业随机抽取器 v5【多人房间+聊天】</h1>
+
+<div class="box">
+<h3>🎮多人联机房间（需要网络）</h3>
+<div class="flex-row">
+<label>昵称：<input type="text" id="userNick" value="冒险者"></label>
+</div>
+<div class="flex-row">
+<button onclick="createRoom()">创建房间</button>
+<input type="text" id="joinRoomCode" placeholder="输入6位房间码">
+<button onclick="joinRoom()">加入房间</button>
+<button class="warn" onclick="leaveRoom()">退出房间</button>
+</div>
+<div class="small-note">房主执行抽卡全员同步；所有人可以房间聊天</div>
+<div>在线成员：<div id="memberList"></div></div>
+<div id="roomStatus">未连接房间</div>
+
+<h4>房间聊天</h4>
+<div id="chatBox"></div>
+<div class="flex-row">
+<input type="text" id="chatInput" placeholder="输入消息按回车发送" style="flex:1" onkeydown="if(event.key==='Enter')sendChat()">
+<button onclick="sendChat()">发送</button>
+</div>
+</div>
+
+<div class="box">
+<h3>基础抽取</h3>
+<div class="flex-row">
+<button onclick="rollAll()">🎲全职业随机抽1个</button>
+<select id="roleSel">
+<option value="tank">坦克</option>
+<option value="healer">治疗</option>
+<option value="mdps">近战DPS</option>
+<option value="rdps_phys">远程物理DPS</option>
+<option value="rdps_mag">远程魔法DPS</option>
+</select>
+<button onclick="rollByRole()">按职能抽取</button>
+</div>
+</div>
+
+<div class="box">
+<h3>配队生成</h3>
+<div class="flex-row">
+<button onclick="make4man()">4人小队(1T+1H+2DPS)</button>
+<button onclick="make8man()">8人团本(2T+2H+4DPS)</button>
+<label><input type="checkbox" id="allowDup">允许重复职业</label>
+</div>
+</div>
+
+<div class="box">
+<h3>筛选条件</h3>
+<div class="flex-row">
+<label>最低等级:<input type="number" id="minLv" min="0" value="0"></label>
+<label>最高等级:<input type="number" id="maxLv" min="0" value="100"></label>
+<label><input type="checkbox" id="excludeMax">排除满级职业</label>
+</div>
+<div style="margin‑top:10px;">
+<button class="secondary" onclick="toggleExcludePanel()">展开/收起【指定排除职业】</button>
+</div>
+<div id="excludePanel" style="display:none;margin‑top:10px;">
+<div class="job‑check-wrap" id="excludeCheckArea"></div>
+<div class="small‑note">勾选的职业会在所有抽取、配队中被跳过</div>
+</div>
+</div>
+
+<div class="box">
+<h3>职业等级管理</h3>
+<div class="flex-row">
+<select id="jobSelect"></select>
+<label>等级:<input type="number" id="jobLv" min="0" max="100" value="0"></label>
+<button onclick="setJobLevel()">保存等级</button>
+<button onclick="clearAllLevel()">清空全部等级</button>
+<button onclick="showJobList()">显示全部职业&等级</button>
+</div>
+</div>
+
+<div class="box">
+<h3>配置导入导出</h3>
+<div class="flex-row">
+<button onclick="exportConfig()">📤导出配置文件</button>
+<button class="secondary" onclick="document.getElementById('importFile').click()">📥导入配置文件</button>
+<input type="file" id="importFile" accept=".json" style="display:none" onchange="importConfig(event)">
+</div>
+<div class="small‑note">配置包含：职业等级、被排除职业列表</div>
+</div>
+
+<div id="result"></div>
+
+<script>
+const jobData = {
+    tank: [
+        {id:"pld",name:"骑士"},
+        {id:"war",name:"战士"},
+        {id:"drk",name:"暗黑骑士"},
+        {id:"gnb",name:"绝枪战士"}
+    ],
+    healer: [
+        {id:"whm",name:"白魔道士"},
+        {id:"sch",name:"学者"},
+        {id:"ast",name:"占星术士"},
+        {id:"sge",name:"贤者"}
+    ],
+    mdps: [
+        {id:"mnk",name:"武僧"},
+        {id:"drg",name:"龙骑士"},
+        {id:"nin",name:"忍者"},
+        {id:"sam",name:"武士"},
+        {id:"rpr",name:"钐镰师"},
+        {id:"vpr",name:"蝰蛇剑士"}
+    ],
+    rdps_phys: [
+        {id:"brd",name:"吟游诗人"},
+        {id:"mch",name:"机工士"},
+        {id:"dnc",name:"舞者"}
+    ],
+    rdps_mag: [
+        {id:"blm",name:"黑魔法师"},
+        {id:"smn",name:"召唤师"},
+        {id:"rdm",name:"赤魔法师"},
+        {id:"pct",name:"绘灵法师"}
+    ]
+};
+const MAX_LEVEL = 100;
+
+let peer = null;
+let isHost = false;
+let roomCode = null;
+let connections = [];
+let memberNames = new Set();
+
+function getAllJobs(){
+    let arr=[];
+    Object.values(jobData).forEach(list=>arr.push(...list));
+    return arr;
+}
+
+function loadStorage(){
+    const raw = localStorage.getItem("ff14_v3");
+    if(raw){
+        return JSON.parse(raw);
+    }
+    return {levels:{}, excludeIds:[]};
+}
+function saveStorage(obj){
+    localStorage.setItem("ff14_v3", JSON.stringify(obj));
+}
+let store = loadStorage();
+let jobLevels = store.levels;
+let excludeIds = store.excludeIds;
+
+function initUI(){
+    const sel=document.getElementById("jobSelect");
+    sel.innerHTML="";
+    getAllJobs().forEach(j=>{
+        let opt=document.createElement("option");
+        opt.value=j.id;
+        opt.textContent=j.name;
+        sel.appendChild(opt);
+    })
+    renderExcludeCheckboxes();
+}
+
+function toggleExcludePanel(){
+    const p=document.getElementById("excludePanel");
+    p.style.display = p.style.display==="none"?"block":"none";
+}
+
+function renderExcludeCheckboxes(){
+    const area = document.getElementById("excludeCheckArea");
+    area.innerHTML="";
+    getAllJobs().forEach(job=>{
+        const label = document.createElement("label");
+        label.className="job‑item";
+        const cb = document.createElement("input");
+        cb.type="checkbox";
+        cb.dataset.jid = job.id;
+        cb.checked = excludeIds.includes(job.id);
+        cb.onchange = ()=>{
+            if(cb.checked){
+                if(!excludeIds.includes(job.id)) excludeIds.push(job.id);
+            }else{
+                excludeIds = excludeIds.filter(x=>x!==job.id);
+            }
+            saveStorage({levels:jobLevels, excludeIds});
+        };
+        label.appendChild(cb);
+        label.append(" "+job.name);
+        area.appendChild(label);
+    })
+}
+
+function getFiltered(sourceList){
+    const minLv=Number(document.getElementById("minLv").value)||0;
+    const maxLv=Number(document.getElementById("maxLv").value)||100;
+    const excludeMax=document.getElementById("excludeMax").checked;
+    return sourceList.filter(job=>{
+        if(excludeIds.includes(job.id)) return false;
+        const lv = jobLevels[job.id]??0;
+        if(lv < minLv) return false;
+        if(lv > maxLv) return false;
+        if(excludeMax && lv>=MAX_LEVEL) return false;
+        return true;
+    })
+}
+
+function randomPick(list){
+    if(list.length===0) return null;
+    return list[Math.floor(Math.random()*list.length)];
+}
+
+function showText(txt){
+    document.getElementById("result").innerText=txt;
+}
+
+//聊天
+function addChatMessage(name,text){
+    const box=document.getElementById("chatBox");
+    const div=document.createElement("div");
+    div.className="chat-item";
+    div.innerHTML=`<span class="chat-name">${name}：</span>${text}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function broadcastChat(nick,msg){
+    addChatMessage(nick,msg);
+    connections.forEach(c=>{if(c.open)c.send({type:"chat",name:nick,text:msg});})
+}
+
+function sendChat(){
+    const nick = document.getElementById("userNick").value.trim()||"冒险者";
+    const input = document.getElementById("chatInput");
+    const text = input.value.trim();
+    if(!text)return;
+    if(!peer){
+        addChatMessage("系统","⚠️请先加入/创建房间");
+        return;
+    }
+    broadcastChat(nick,text);
+    input.value="";
+}
+
+function broadcastRoomResult(text){
+    showText(text);
+    connections.forEach(conn=>{
+        if(conn.open) conn.send({type:"roomResult", payload:text});
+    })
+}
+
+function rollAll(){
+    const all=getAllJobs();
+    const pool=getFiltered(all);
+    if(pool.length===0){showText("⚠️筛选/排除后没有可用职业");return;}
+    const j=randomPick(pool);
+    const lv=jobLevels[j.id]??0;
+    const star=lv>=MAX_LEVEL?" ★满级":"";
+    const out = `🎲抽到：${j.name}\n当前等级：${lv}${star}`;
+    if(isHost) broadcastRoomResult(out);
+    else showText(out);
+}
+
+function rollByRole(){
+    const r=document.getElementById("roleSel").value;
+    const list=jobData[r];
+    const pool=getFiltered(list);
+    if(pool.length===0){showText("⚠️该职能筛选/排除后无可用职业");return;}
+    const j=randomPick(pool);
+    const lv=jobLevels[j.id]??0;
+    const star=lv>=MAX_LEVEL?" ★满级":"";
+    const out = `🎲按职能抽取：${j.name}\n当前等级：${lv}${star}`;
+    if(isHost) broadcastRoomResult(out);
+    else showText(out);
+}
+
+function pickFromRole(roleKey,allowDup,usedSet){
+    const pool=getFiltered(jobData[roleKey]);
+    if(!allowDup){
+        const avail=pool.filter(x=>!usedSet.has(x.id));
+        if(avail.length===0) return null;
+        const res=randomPick(avail);
+        usedSet.add(res.id);
+        return res;
+    }else{
+        return randomPick(pool);
+    }
+}
+
+function make4man(){
+    const allowDup=document.getElementById("allowDup").checked;
+    const used=new Set();
+    const t=pickFromRole("tank",allowDup,used);
+    const h=pickFromRole("healer",allowDup,used);
+    const d1=pickFromRole("mdps",allowDup,used)||pickFromRole("rdps_phys",allowDup,used)||pickFromRole("rdps_mag",allowDup,used);
+    const d2=pickFromRole("mdps",allowDup,used)||pickFromRole("rdps_phys",allowDup,used)||pickFromRole("rdps_mag",allowDup,used);
+    if(!t||!h||!d1||!d2){
+        const msg = "⚠️条件不足，无法组成4人队，请放宽筛选或取消部分职业排除";
+        if(isHost) broadcastRoomResult(msg); else showText(msg);
+        return;
+    }
+    function fmt(j){ return `${j.name}(Lv.${jobLevels[j.id]??0})`; }
+    const out = `【4人小队】\n坦克：${fmt(t)}\n治疗：${fmt(h)}\nDPS‑1：${fmt(d1)}\nDPS‑2：${fmt(d2)}`;
+    if(isHost) broadcastRoomResult(out); else showText(out);
+}
+
+function make8man(){
+    const allowDup=document.getElementById("allowDup").checked;
+    const used=new Set();
+    const t1=pickFromRole("tank",allowDup,used);
+    const t2=pickFromRole("tank",allowDup,used);
+    const h1=pickFromRole("healer",allowDup,used);
+    const h2=pickFromRole("healer",allowDup,used);
+    function getAnyDps(){
+        return pickFromRole("mdps",allowDup,used)||pickFromRole("rdps_phys",allowDup,used)||pickFromRole("rdps_mag",allowDup,used);
+    }
+    const d1=getAnyDps();
+    const d2=getAnyDps();
+    const d3=getAnyDps();
+    const d4=getAnyDps();
+    if(!t1||!t2||!h1||!h2||!d1||!d2||!d3||!d4){
+        const msg = "⚠️条件不足，无法组成8人团，请放宽筛选或取消部分职业排除";
+        if(isHost) broadcastRoomResult(msg); else showText(msg);
+        return;
+    }
+    function fmt(j){ return `${j.name}(Lv.${jobLevels[j.id]??0})`; }
+    const out = `【8人团本队伍】\nMT：${fmt(t1)} | ST：${fmt(t2)}\nH1：${fmt(h1)} | H2：${fmt(h2)}\nDPS：${fmt(d1)}、${fmt(d2)}、${fmt(d3)}、${fmt(d4)}`;
+    if(isHost) broadcastRoomResult(out); else showText(out);
+}
+
+function setJobLevel(){
+    const jid=document.getElementById("jobSelect").value;
+    const lv=Number(document.getElementById("jobLv").value);
+    jobLevels[jid]=lv;
+    saveStorage({levels:jobLevels, excludeIds});
+    showText(`✅已保存等级`);
+}
+
+function clearAllLevel(){
+    if(!confirm("确定清空所有职业等级记录？"))return;
+    jobLevels={};
+    saveStorage({levels:jobLevels, excludeIds});
+    showText("🗑全部等级已清空");
+}
+
+function showJobList(){
+    let out="===全部职业列表===\n";
+    getAllJobs().forEach(j=>{
+        const lv=jobLevels[j.id]??0;
+        const star=lv>=MAX_LEVEL?" ★":"";
+        const exc = excludeIds.includes(j.id)?" 【已排除】":"";
+        out+=`${j.name} : Lv.${lv}${star}${exc}\n`;
+    })
+    showText(out);
+}
+
+function exportConfig(){
+    const cfg = {
+        levels: jobLevels,
+        excludeIds: excludeIds
+    };
+    const blob = new Blob([JSON.stringify(cfg,null,2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ff14_job_config.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showText("✅配置已导出为 ff14_job_config.json");
+}
+
+function importConfig(evt){
+    const file = evt.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = e=>{
+        try{
+            const obj = JSON.parse(e.target.result);
+            if(obj.levels && obj.excludeIds){
+                jobLevels = obj.levels;
+                excludeIds = obj.excludeIds;
+                saveStorage({levels:jobLevels, excludeIds});
+                renderExcludeCheckboxes();
+                showText("✅配置导入成功！");
+            }else{
+                showText("❌配置文件格式不正确");
+            }
+        }catch(err){
+            showText("❌解析文件失败");
+        }
+    }
+    reader.readAsText(file);
+    evt.target.value = "";
+}
+
+function updateRoomStatus(text){
+    document.getElementById("roomStatus").innerText = text;
+}
+function renderMemberList(){
+    const dom = document.getElementById("memberList");
+    dom.innerHTML="";
+    memberNames.forEach(n=>{
+        const sp = document.createElement("span");
+        sp.className="room-member-item";
+        sp.innerText = n;
+        dom.appendChild(sp);
+    })
+}
+
+function createRoom(){
+    const nick = document.getElementById("userNick").value.trim()||"冒险者";
+    roomCode = String(Math.floor(100000+Math.random()*900000));
+    isHost = true;
+    memberNames.clear();
+    memberNames.add(nick);
+    connections = [];
+    peer = new Peer("room_"+roomCode);
+    peer.on('open',()=>{
+        updateRoomStatus(`🏠你是房主，房间码：${roomCode}，分享给队友`);
+        renderMemberList();
+        addChatMessage("系统","房间已创建，等待队友加入");
+    })
+    peer.on('connection',(conn)=>{
+        connections.push(conn);
+        conn.on('open',()=>{});
+        conn.on('data',(data)=>{
+            if(data.type==="joinNotice"){
+                memberNames.add(data.name);
+                renderMemberList();
+                addChatMessage("系统",`${data.name} 加入房间`);
+            }else if(data.type==="chat"){
+                addChatMessage(data.name,data.text);
+            }
+        })
+        conn.on('close',()=>{});
+        conn.on('error',err=>{});
+    })
+    peer.on('error',err=>{updateRoomStatus("❌房间创建失败，网络异常");})
+}
+
+function joinRoom(){
+    const nick = document.getElementById("userNick").value.trim()||"冒险者";
+    const inputCode = document.getElementById("joinRoomCode").value.trim();
+    if(!inputCode){alert("请输入房间码");return;}
+    roomCode = inputCode;
+    isHost = false;
+    memberNames.clear();
+    peer = new Peer();
+    peer.on('open',()=>{
+        const conn = peer.connect("room_"+roomCode);
+        conn.on('open',()=>{
+            updateRoomStatus(`✅已加入房间 ${roomCode}`);
+            conn.send({type:"joinNotice", name:nick});
+            connections=[conn];
+        })
+        conn.on('data',(data)=>{
+            if(data.type==="roomResult"){
+                showText(data.payload);
+            }else if(data.type==="joinNotice"){
+                memberNames.add(data.name);
+                renderMemberList();
+            }else if(data.type==="chat"){
+                addChatMessage(data.name,data.text);
+            }
+        })
+        conn.on('error',()=>{updateRoomStatus("❌连接房间失败");})
+    })
+}
+
+function leaveRoom(){
+    if(peer) peer.destroy();
+    peer=null;
+    isHost=false;
+    roomCode=null;
+    connections=[];
+    memberNames.clear();
+    updateRoomStatus("未连接房间");
+    document.getElementById("memberList").innerHTML="";
+    document.getElementById("chatBox").innerHTML="";
+}
+
+initUI();
+</script>
+</body>
+</html>
