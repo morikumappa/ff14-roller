@@ -19,10 +19,10 @@ button.warn:hover{background:#b83838;}
 input,select{padding:7px 9px;background:#111827;color:#eee;border:1px solid #374151;border-radius:5px;margin:4px;}
 #result{white-space:pre-wrap;padding:14px;background:#111827;border-radius:8px;min-height:140px;margin-top:12px;border:1px solid #27303f;font-size:14px;line-height:1.6;}
 .flex-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
-.job‑check-wrap{display:grid;grid-template-columns:repeat(auto‑fill, minmax(130px,1fr));gap:6px;margin‑top:8px;}
-.job‑item{padding:4px 6px;font‑size:13px;}
+.job-check-wrap{display:grid;grid-template-columns:repeat(auto-fill, minmax(130px,1fr));gap:6px;margin-top:8px;}
+.job-item{padding:4px 6px;font-size:13px;}
 .star{color:#facc15;}
-.small-note{font‑size:12px;color:#94a3b8;margin‑top:4px;}
+.small-note{font-size:12px;color:#94a3b8;margin-top:4px;}
 .room-member-item{padding:4px 8px;background:#27303f;border-radius:4px;margin:3px;display:inline-block;}
 #chatBox{height:180px;overflow-y:auto;background:#111827;padding:8px;border-radius:6px;border:1px solid #27303f;margin:8px 0;}
 .chat-item{margin:3px 0;font-size:13px;}
@@ -86,12 +86,12 @@ input,select{padding:7px 9px;background:#111827;color:#eee;border:1px solid #374
 <label>最高等级:<input type="number" id="maxLv" min="0" value="100"></label>
 <label><input type="checkbox" id="excludeMax">排除满级职业</label>
 </div>
-<div style="margin‑top:10px;">
+<div style="margin-top:10px;">
 <button class="secondary" onclick="toggleExcludePanel()">展开/收起【指定排除职业】</button>
 </div>
-<div id="excludePanel" style="display:none;margin‑top:10px;">
-<div class="job‑check-wrap" id="excludeCheckArea"></div>
-<div class="small‑note">勾选的职业会在所有抽取、配队中被跳过</div>
+<div id="excludePanel" style="display:none;margin-top:10px;">
+<div class="job-check-wrap" id="excludeCheckArea"></div>
+<div class="small-note">勾选的职业会在所有抽取、配队中被跳过</div>
 </div>
 </div>
 
@@ -113,7 +113,7 @@ input,select{padding:7px 9px;background:#111827;color:#eee;border:1px solid #374
 <button class="secondary" onclick="document.getElementById('importFile').click()">📥导入配置文件</button>
 <input type="file" id="importFile" accept=".json" style="display:none" onchange="importConfig(event)">
 </div>
-<div class="small‑note">配置包含：职业等级、被排除职业列表</div>
+<div class="small-note">配置包含：职业等级、被排除职业列表</div>
 </div>
 
 <div id="result"></div>
@@ -202,7 +202,7 @@ function renderExcludeCheckboxes(){
     area.innerHTML="";
     getAllJobs().forEach(job=>{
         const label = document.createElement("label");
-        label.className="job‑item";
+        label.className="job-item";
         const cb = document.createElement("input");
         cb.type="checkbox";
         cb.dataset.jid = job.id;
@@ -244,6 +244,39 @@ function showText(txt){
     document.getElementById("result").innerText=txt;
 }
 
+//----------- 多人联机：消息与转发 -----------
+
+// 把消息发给所有已连接的对端
+function sendAll(msg){
+    connections.forEach(c=>{ if(c.open) c.send(msg); });
+}
+// 把消息发给除 exceptConn 以外的所有已连接对端（避免回声重复）
+function sendOthers(msg, exceptConn){
+    connections.forEach(c=>{ if(c!==exceptConn && c.open) c.send(msg); });
+}
+// 房主下发权威成员名单，保证所有人视图一致
+function broadcastMemberList(){
+    if(!isHost) return;
+    sendAll({type:"memberList", names:[...memberNames]});
+}
+// 房主把收到的聊天转发给其他成员
+function relayChat(chat, exceptConn){
+    sendOthers({type:"chat", name:chat.name, text:chat.text}, exceptConn);
+}
+// 房主把成员抽到的卡结果转发给其他人
+function relayResult(payload, exceptConn){
+    sendOthers({type:"roomResult", payload}, exceptConn);
+}
+// 抽卡结果统一出口：房主直接广播，成员发给房主由房主转发
+function publishResult(out){
+    showText(out);
+    if(isHost){
+        sendAll({type:"roomResult", payload:out});
+    } else if(connections.length){
+        connections[0].send({type:"rollResult", payload:out});
+    }
+}
+
 //聊天
 function addChatMessage(name,text){
     const box=document.getElementById("chatBox");
@@ -272,13 +305,6 @@ function sendChat(){
     input.value="";
 }
 
-function broadcastRoomResult(text){
-    showText(text);
-    connections.forEach(conn=>{
-        if(conn.open) conn.send({type:"roomResult", payload:text});
-    })
-}
-
 function rollAll(){
     const all=getAllJobs();
     const pool=getFiltered(all);
@@ -287,8 +313,7 @@ function rollAll(){
     const lv=jobLevels[j.id]??0;
     const star=lv>=MAX_LEVEL?" ★满级":"";
     const out = `🎲抽到：${j.name}\n当前等级：${lv}${star}`;
-    if(isHost) broadcastRoomResult(out);
-    else showText(out);
+    publishResult(out);
 }
 
 function rollByRole(){
@@ -300,8 +325,7 @@ function rollByRole(){
     const lv=jobLevels[j.id]??0;
     const star=lv>=MAX_LEVEL?" ★满级":"";
     const out = `🎲按职能抽取：${j.name}\n当前等级：${lv}${star}`;
-    if(isHost) broadcastRoomResult(out);
-    else showText(out);
+    publishResult(out);
 }
 
 function pickFromRole(roleKey,allowDup,usedSet){
@@ -326,12 +350,11 @@ function make4man(){
     const d2=pickFromRole("mdps",allowDup,used)||pickFromRole("rdps_phys",allowDup,used)||pickFromRole("rdps_mag",allowDup,used);
     if(!t||!h||!d1||!d2){
         const msg = "⚠️条件不足，无法组成4人队，请放宽筛选或取消部分职业排除";
-        if(isHost) broadcastRoomResult(msg); else showText(msg);
-        return;
+        publishResult(msg); return;
     }
     function fmt(j){ return `${j.name}(Lv.${jobLevels[j.id]??0})`; }
     const out = `【4人小队】\n坦克：${fmt(t)}\n治疗：${fmt(h)}\nDPS‑1：${fmt(d1)}\nDPS‑2：${fmt(d2)}`;
-    if(isHost) broadcastRoomResult(out); else showText(out);
+    publishResult(out);
 }
 
 function make8man(){
@@ -350,12 +373,11 @@ function make8man(){
     const d4=getAnyDps();
     if(!t1||!t2||!h1||!h2||!d1||!d2||!d3||!d4){
         const msg = "⚠️条件不足，无法组成8人团，请放宽筛选或取消部分职业排除";
-        if(isHost) broadcastRoomResult(msg); else showText(msg);
-        return;
+        publishResult(msg); return;
     }
     function fmt(j){ return `${j.name}(Lv.${jobLevels[j.id]??0})`; }
     const out = `【8人团本队伍】\nMT：${fmt(t1)} | ST：${fmt(t2)}\nH1：${fmt(h1)} | H2：${fmt(h2)}\nDPS：${fmt(d1)}、${fmt(d2)}、${fmt(d3)}、${fmt(d4)}`;
-    if(isHost) broadcastRoomResult(out); else showText(out);
+    publishResult(out);
 }
 
 function setJobLevel(){
@@ -450,18 +472,39 @@ function createRoom(){
         addChatMessage("系统","房间已创建，等待队友加入");
     })
     peer.on('connection',(conn)=>{
+        conn.peerName = null;
         connections.push(conn);
         conn.on('open',()=>{});
         conn.on('data',(data)=>{
             if(data.type==="joinNotice"){
+                // 房主收到新成员报到：登记、刷新、向所有人下发名单、并通知其他成员
+                conn.peerName = data.name;
                 memberNames.add(data.name);
                 renderMemberList();
-                addChatMessage("系统",`${data.name} 加入房间`);
+                addChatMessage("系统", data.name+" 加入房间");
+                broadcastMemberList();
+                relayChat({name:"系统", text:data.name+" 加入房间"}, conn);
             }else if(data.type==="chat"){
-                addChatMessage(data.name,data.text);
+                // 房主显示来自成员的聊天，并转发给其它成员
+                addChatMessage(data.name, data.text);
+                relayChat(data, conn);
+            }else if(data.type==="rollResult"){
+                // 成员抽到的结果：房主本地显示 + 转发给其他人
+                showText(data.payload);
+                relayResult(data.payload, conn);
             }
         })
-        conn.on('close',()=>{});
+        conn.on('close',()=>{
+            // 成员离开：从名单移除并向全员广播
+            if(conn.peerName){
+                memberNames.delete(conn.peerName);
+                addChatMessage("系统", conn.peerName+" 离开了房间");
+                relayChat({name:"系统", text:conn.peerName+" 离开了房间"}, conn);
+            }
+            connections = connections.filter(c=>c!==conn);
+            renderMemberList();
+            broadcastMemberList();
+        })
         conn.on('error',err=>{});
     })
     peer.on('error',err=>{updateRoomStatus("❌房间创建失败，网络异常");})
@@ -473,7 +516,8 @@ function joinRoom(){
     if(!inputCode){alert("请输入房间码");return;}
     roomCode = inputCode;
     isHost = false;
-    memberNames.clear();
+    memberNames = new Set([nick]);   // 先把自己放进本地名单
+    renderMemberList();
     peer = new Peer();
     peer.on('open',()=>{
         const conn = peer.connect("room_"+roomCode);
@@ -483,14 +527,21 @@ function joinRoom(){
             connections=[conn];
         })
         conn.on('data',(data)=>{
-            if(data.type==="roomResult"){
-                showText(data.payload);
-            }else if(data.type==="joinNotice"){
-                memberNames.add(data.name);
+            if(data.type==="memberList"){
+                // 收到房主下发的权威名单，直接覆盖本地（含房主、自己、所有成员）
+                memberNames = new Set(data.names);
                 renderMemberList();
+            }else if(data.type==="roomResult"){
+                showText(data.payload);
             }else if(data.type==="chat"){
-                addChatMessage(data.name,data.text);
+                addChatMessage(data.name, data.text);
             }
+        })
+        conn.on('close',()=>{
+            // 房主断线/房间解散
+            updateRoomStatus("⚠️与房主的连接已断开，房间解散");
+            memberNames.clear();
+            renderMemberList();
         })
         conn.on('error',()=>{updateRoomStatus("❌连接房间失败");})
     })
